@@ -60,10 +60,11 @@
             document.getElementById("I_LINE_CD").disabled = true;
             document.getElementById("I_LINE_NM").disabled = true;
             document.getElementById("I_PART_NO").disabled = true;
+            document.getElementById("I_PROD_LOT_NO").disabled = true;
 
             //Inspectio Type Changed Event
-            $('#cb_insp_type').on('change', function() {
-              //alert( this.value );
+            $('#cb_insp_type').on('change changed.bs.select', function() {
+              if (!this.value) { return; }
               fn_load_check_list(this.value);
             });
 
@@ -205,28 +206,86 @@
                 window.location.href = "/login.jsp";
             }
 
+            document.getElementById("I_LINE_CD").value = pLINE_CD;
+
+            fn_load_part_no_list(pLINE_CD);
+            fn_set_fixed_insp_type();
+
+
+        }
+
+        function fn_set_fixed_insp_type() {
+            $('#cb_insp_type').empty();
+            $('#cb_insp_type').append('<option value="FML_LIST">FML_LIST</option>');
+            $("#cb_insp_type").selectpicker("refresh");
+            $('#cb_insp_type').selectpicker('val', 'FML_LIST');
+            $('#cb_insp_type').trigger('change');
+        }
+
+        function fn_load_insp_type_list(pLINE_CD) {
             var paramObj = {};
             paramObj["SQL"] = "PKG_INSP_COMMON_NEW.INSP_GROUP_PROD";
             paramObj["I_LINE_CD"] = pLINE_CD;
             onSelectDataTable(paramObj, "onSuccessSelectResult", true);
+        }
 
-            document.getElementById("I_LINE_CD").value = pLINE_CD;
+        function fn_load_part_no_list(pLINE_CD) {
+            var paramObj = {};
+            paramObj["SQL"] = "PKG_INSP007_PRS.PART_NO_LIST";
+            paramObj["I_LINE_CD"] = pLINE_CD;
+            onSelect(paramObj, "onSuccessPartNoList", true);
+        }
 
+        function onSuccessPartNoList(data) {
+            var result = data.result;
 
+            if (!result || result.length === 0) {
+                document.getElementById("I_PART_NO").value = "";
+                document.getElementById("I_PROD_LOT_NO").value = "";
+                return;
+            }
+
+            var partNoList = [];
+            var prodLotNoList = [];
+            for (var i = 0; i < result.length; i++) {
+                var partNo = result[i].part_no || result[i].code || result[i].name;
+                if (partNo) {
+                    partNoList.push(partNo);
+                }
+
+                var prodLotNo = result[i].prod_lot_no || result[i].prodLotNo;
+                if (prodLotNo) {
+                    prodLotNoList.push(prodLotNo);
+                }
+            }
+
+            document.getElementById("I_PART_NO").value = partNoList.join(", ");
+            document.getElementById("I_PROD_LOT_NO").value = prodLotNoList.join(", ");
         }
 
         function onSuccessSelectResult(data) {
 
             var result_json = data.data;
+            $('#cb_insp_type').empty();
+
+            if (!result_json || result_json.length === 0) {
+                document.getElementById("I_LINE_NM").value = "";
+                $("#cb_insp_type").selectpicker("refresh");
+                return;
+            }
+
             document.getElementById("I_LINE_NM").value = result_json[0].line_nm;
             //document.getElementById("I_IMG_COUNT").textContent = "1/2";
             //fn_load_check_image();
 
-            $('#cb_insp_type').empty();
             for (var i = 0; i < result_json.length; i++) {
                 $('#cb_insp_type').append('<option value="' + result_json[i].code + '">' + result_json[i].name + '</option>');
-                $("#cb_insp_type").selectpicker("refresh");
             }
+            $("#cb_insp_type").selectpicker("refresh");
+
+            var selectedInspType = result_json[0].code;
+            $('#cb_insp_type').selectpicker('val', selectedInspType);
+            $('#cb_insp_type').trigger('change');
         }
 
         function fn_load_check_list(pINSP_TYPE) {
@@ -235,7 +294,7 @@
                 window.location.href = "/login.jsp";
             }
 
-            if (pINSP_TYPE == "QC_FML_CHECK" || pINSP_TYPE == "QC_DIMS_CHECK" || pINSP_TYPE == "MT_CO2_CHECK" ||pINSP_TYPE == "PRESS_FML_CHECK") {
+            if (pINSP_TYPE == "FML_LIST" || pINSP_TYPE == "QC_FML_CHECK" || pINSP_TYPE == "QC_DIMS_CHECK" || pINSP_TYPE == "MT_CO2_CHECK" ||pINSP_TYPE == "PRESS_FML_CHECK") {
                 $("#div_part_no").show();
                 fn_part_Combo();
             }
@@ -255,17 +314,51 @@
 
 //Currnt ending point
 
-        function fn_load_check_list_part(pPART_NO) {
-            var usercd = getCookie("user_cd");
-            if (usercd == null || usercd == "" || usercd == undefined) {
-                window.location.href = "/login.jsp";
-            }
-            alert(pPART_NO)
-            var paramObj = {};
-            paramObj["SQL"] = "PKG_INSP_COMMON_NEW.PRS_FML_LIST"; //Need to change the PK to proper one
+          function fn_get_fml_suffix(pFmlCode) {
+              var fmlCode = (pFmlCode || '').toString().trim().toUpperCase();
 
-            onSelectDataTable(paramObj, "onSuccessSelectCheckList", true);
-        }
+              if (fmlCode === 'FIRST' || fmlCode === 'F' || fmlCode === '1') return 'F';
+              if (fmlCode === 'SECOND' || fmlCode === 'S' || fmlCode === '2') return 'S';
+              if (fmlCode === 'THIRD' || fmlCode === 'T' || fmlCode === '3') return 'T';
+
+              if (fmlCode.length > 0) {
+                  return fmlCode.charAt(0);
+              }
+              return '';
+          }
+
+          function fn_build_part_fml_line_cd(pPartNo, pFmlCode) {
+              var partNo = (pPartNo || '').toString().trim();
+              var suffix = fn_get_fml_suffix(pFmlCode);
+
+              if (!partNo || !suffix) {
+                  return '';
+              }
+
+              return partNo + '-' + suffix;
+          }
+
+          function fn_load_check_list_part(pPART_NO) {
+              var usercd = getCookie("user_cd");
+              if (usercd == null || usercd == "" || usercd == undefined) {
+                  window.location.href = "/login.jsp";
+              }
+
+              var partNo = document.getElementById("I_PART_NO").value;
+              var lineCdForPartFml = fn_build_part_fml_line_cd(partNo, pPART_NO);
+
+              if (lineCdForPartFml == "") {
+                  alert("Part No/FML is not valid. Please re-check your selection.");
+                  return;
+              }
+
+              var paramObj = {};
+              paramObj["SQL"] = "PKG_INSP007_PRS.CHECK_LIST";
+              paramObj["I_LINE_CD"] = lineCdForPartFml;
+              paramObj["I_INSP_CD"] = $("#cb_insp_type").val();
+
+              onSelectDataTable(paramObj, "onSuccessSelectCheckList", true);
+          }
 
         function onSuccessSelectCheckList(data) {
             //var result = data.result;
@@ -504,16 +597,16 @@
               insp_criteria_arr.push(arrCriteria[i]); // when data load
               value_std_arr.push(arrValueSTD[i]); // choose 1. when data load, 2. user input
               img_path_arr.push(arrImgPath[i]); // user input
-              if($("#cb_insp_type").val() == "QC_FML_CHECK" || $("#cb_insp_type").val() == "QC_DIMS_CHECK" || $("#cb_insp_type").val() == "MT_CO2_CHECK") {
+              if($("#cb_insp_type").val() == "FML_LIST" || $("#cb_insp_type").val() == "QC_FML_CHECK" || $("#cb_insp_type").val() == "QC_DIMS_CHECK" || $("#cb_insp_type").val() == "MT_CO2_CHECK") {
                   part_no_arr.push($("#cb_part_no").val());
               }
           }
 
 
           if(confirm("Are you sure to submit " + $("#cb_insp_type").val() + "? \n Inspection Result : " + result_code + "\n NG Criteria : " + ng_criteria) == true){
-              if ($("#cb_insp_type").val() == "QC_FML_CHECK" || $("#cb_insp_type").val() == "QC_DIMS_CHECK" || $("#cb_insp_type").val() == "MT_CO2_CHECK") {
-                  var paramObj = {};
-                  paramObj["SQL"] = "PKG_INSP_COMMON_NEW.LINE_CHECKLIST_SAVE_PART";
+            if ($("#cb_insp_type").val() == "FML_LIST" || $("#cb_insp_type").val() == "QC_FML_CHECK" || $("#cb_insp_type").val() == "QC_DIMS_CHECK" || $("#cb_insp_type").val() == "MT_CO2_CHECK") {
+                var paramObj = {};␊
+                paramObj["SQL"] = "PKG_INSP_COMMON_NEW.LINE_CHECKLIST_SAVE_PART";
                   paramObj["I_1_LINE_CD"] = line_cd_arr;
                   paramObj["I_2_INSP_DOC_NO"] = insp_doc_no_arr;
                   paramObj["I_3_INSP_CD"] = insp_cd_arr;
@@ -752,17 +845,25 @@
                                         </div>
                                     </div>
                                     <div class="row">
-                                        <div class="col-sm-12">
-                                            <div class="form-group">
-                                                <label class="control-label">Part no</label>
-                                                <input id="I_PART_NO" type="text" class="form-control" placeholder="Please Scan Line Code">
-                                            </div>
+                                    <div class="col-sm-12">
+                                        <div class="form-group">
+                                            <label class="control-label">Part no</label>
+                                            <input id="I_PART_NO" type="text" class="form-control" placeholder="Please Scan Line Code">
                                         </div>
                                     </div>
-                                    <div class="row">
-                                        <div class="col-sm-12">
-                                            <div class="form-group">
-                                              <label class="control-label">Inspection Type</label>
+                                </div>
+                                <div class="row">
+                                    <div class="col-sm-12">
+                                        <div class="form-group">
+                                            <label class="control-label">Prod lot no</label>
+                                            <input id="I_PROD_LOT_NO" type="text" class="form-control" placeholder="Please Scan Line Code">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-sm-12">
+                                        <div class="form-group">
+                                          <label class="control-label">Inspection Type</label>
                                               <select id="cb_insp_type" class="selectpicker" data-live-search="true" data-width="100%">
                                               </select>
                                             </div>
