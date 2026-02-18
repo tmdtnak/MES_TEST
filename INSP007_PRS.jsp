@@ -208,6 +208,7 @@
 
             document.getElementById("I_LINE_CD").value = pLINE_CD;
 
+            fn_load_insp_type_list(pLINE_CD);
             fn_load_part_no_list(pLINE_CD);
             fn_set_fixed_insp_type();
 
@@ -266,26 +267,13 @@
         function onSuccessSelectResult(data) {
 
             var result_json = data.data;
-            $('#cb_insp_type').empty();
 
             if (!result_json || result_json.length === 0) {
                 document.getElementById("I_LINE_NM").value = "";
-                $("#cb_insp_type").selectpicker("refresh");
                 return;
             }
 
             document.getElementById("I_LINE_NM").value = result_json[0].line_nm;
-            //document.getElementById("I_IMG_COUNT").textContent = "1/2";
-            //fn_load_check_image();
-
-            for (var i = 0; i < result_json.length; i++) {
-                $('#cb_insp_type').append('<option value="' + result_json[i].code + '">' + result_json[i].name + '</option>');
-            }
-            $("#cb_insp_type").selectpicker("refresh");
-
-            var selectedInspType = result_json[0].code;
-            $('#cb_insp_type').selectpicker('val', selectedInspType);
-            $('#cb_insp_type').trigger('change');
         }
 
         function fn_load_check_list(pINSP_TYPE) {
@@ -327,15 +315,31 @@
               return '';
           }
 
-          function fn_build_part_fml_line_cd(pPartNo, pFmlCode) {
-              var partNo = (pPartNo || '').toString().trim();
-              var suffix = fn_get_fml_suffix(pFmlCode);
+          function fn_is_binary_std_value(pStdValue) {
+            var value = (pStdValue || '').toString().trim().toUpperCase();
+            return value == 'YES' || value == 'NO' || value == 'OK' || value == 'NG';
+        }
 
-              if (!partNo || !suffix) {
-                  return '';
-              }
+        function fn_is_numeric_std_value(pStdValue) {
+            var value = (pStdValue || '').toString().trim();
+            if (value == '') {
+                return false;
+            }
+            return !isNaN(Number(value));
+        }
 
-              return partNo + '-' + suffix;
+        function fn_set_binary_option_label(pIndex, pStdValue) {
+            var value = (pStdValue || '').toString().trim().toUpperCase();
+            var firstValue = (value == 'YES' || value == 'NO') ? 'YES' : 'OK';
+            var secondValue = (firstValue == 'YES') ? 'NO' : 'NG';
+
+            var firstInput = document.getElementById('chk_okng_ok_' + pIndex);
+            var secondInput = document.getElementById('chk_okng_ng_' + pIndex);
+            if (firstInput) { firstInput.value = firstValue; firstInput.checked = false; }
+            if (secondInput) { secondInput.value = secondValue; secondInput.checked = false; }
+
+            $("label[for='chk_okng_ok_" + pIndex + "']").text(firstValue);
+            $("label[for='chk_okng_ng_" + pIndex + "']").text(secondValue);
           }
 
           function fn_load_check_list_part(pPART_NO) {
@@ -344,18 +348,21 @@
                   window.location.href = "/login.jsp";
               }
 
-              var partNo = document.getElementById("I_PART_NO").value;
-              var lineCdForPartFml = fn_build_part_fml_line_cd(partNo, pPART_NO);
+              var lineCd = document.getElementById("I_LINE_CD").value;
+              var rawPartNo = (document.getElementById("I_PART_NO").value || '').toString().trim();
+              var partNo = rawPartNo.split(',')[0].trim();
+              var fmlCd = fn_get_fml_suffix(pPART_NO);
 
-              if (lineCdForPartFml == "") {
-                  alert("Part No/FML is not valid. Please re-check your selection.");
-                  return;
-              }
+              if (lineCd == "" || partNo == "" || fmlCd == "") {
+                    alert("Part No/FML is not valid. Please re-check your selection.");
+                    return;
+                }
 
               var paramObj = {};
               paramObj["SQL"] = "PKG_INSP007_PRS.CHECK_LIST";
-              paramObj["I_LINE_CD"] = lineCdForPartFml;
-              paramObj["I_INSP_CD"] = $("#cb_insp_type").val();
+              paramObj["I_LINE_CD"] = lineCd;
+              paramObj["I_PART_NO"] = partNo;
+              paramObj["I_FML_CD"] = fmlCd;
 
               onSelectDataTable(paramObj, "onSuccessSelectCheckList", true);
           }
@@ -367,35 +374,42 @@
             var result = data.data;
 
             for(var i=0; i<result.length; i++){
-              //alert(result_json[i].insp_type);
-              if(result[i].insp_type == 'OKNG'){
+              var stdValue = (result[i].std_value || '').toString().trim();
+              var criteria = result[i].insp_criteria || result[i].insp_nm || '';
+              var inspCd = result[i].insp_cd || (i + 1).toString();
+              var isBinary = fn_is_binary_std_value(stdValue);
+              var isRange = stdValue.indexOf('~') != -1 || fn_is_numeric_std_value(stdValue);
+
+              if(isBinary){
                 $('#div_okng_' + (okng_cnt+1)).show();
-                document.getElementById("chk_okng_criteria_" + (okng_cnt+1)).value = result[i].insp_criteria;
-                document.getElementById("chk_okng_std_" + (okng_cnt+1)).value = result[i].std_value;
-                arrInspCd.push(result[i].insp_cd);
-                arrCheckType.push(result[i].insp_type);
-                arrCriteria.push(result[i].insp_criteria);
-                arrStdValue.push(result[i].std_value);
+                document.getElementById("chk_okng_criteria_" + (okng_cnt+1)).value = criteria;
+                document.getElementById("chk_okng_std_" + (okng_cnt+1)).value = stdValue;
+                fn_set_binary_option_label((okng_cnt+1), stdValue);
+                arrInspCd.push(inspCd);
+                arrCheckType.push('OKNG');
+                arrCriteria.push(criteria);
+                arrStdValue.push(stdValue);
                 arrObjectName.push("chk_okng_value_" + (okng_cnt+1));
                 arrObjectIndex.push((okng_cnt+1));
                 okng_cnt+=1;
+                total_cnt+=1;
               }
-              if(result[i].insp_type == 'RANGE'){
+              else if(isRange){
                 $('#div_range_' + (range_cnt+1)).show();
-                document.getElementById("chk_range_criteria_" + (range_cnt+1)).value = result[i].insp_criteria;
-                document.getElementById("chk_range_std_" + (range_cnt+1)).value = result[i].std_value;
-                arrInspCd.push(result[i].insp_cd);
-                arrCheckType.push(result[i].insp_type);
-                arrCriteria.push(result[i].insp_criteria);
-                arrStdValue.push(result[i].std_value);
+                document.getElementById("chk_range_criteria_" + (range_cnt+1)).value = criteria;
+                document.getElementById("chk_range_std_" + (range_cnt+1)).value = stdValue;
+                arrInspCd.push(inspCd);
+                arrCheckType.push('RANGE');
+                arrCriteria.push(criteria);
+                arrStdValue.push(stdValue);
                 arrObjectName.push("chk_range_value_" + (range_cnt+1));
                 arrObjectIndex.push((range_cnt+1));
                 range_cnt+=1;
-              }
                 total_cnt+=1;
+              }
             }
 
-            img_cnt = result[0].img_count;
+            img_cnt = (result.length > 0 && result[0].img_count) ? result[0].img_count : "0";
 
             if (img_cnt != "0") {
                 fn_load_check_image();
@@ -497,9 +511,10 @@
           for(var i=1; i<=total_cnt; i++){
             //alert(arrCheckType[i-1] + '/' + arrStdValue[i-1]);
 
-            if(arrStdValue[i-1].indexOf('~') != -1){
+            if(arrCheckType[i-1] == 'RANGE'){
               //Range Check
-              var std_values = arrStdValue[i-1].split('~');
+              var stdText = (arrStdValue[i-1] || '').toString().trim();
+              var std_values = stdText.split('~');
               var value_std = document.getElementById("chk_range_std_" + arrObjectIndex[i-1]).value;
               var check_value = document.getElementById(arrObjectName[i-1]).value;
               var remark_value = document.getElementById("chk_range_rmk_" + arrObjectIndex[i-1]).value;
@@ -510,7 +525,15 @@
                 alert ("Not all inspection results have been registered...\n\n Please check the list and input the result");
                 return;
               }
-              if(check_value*1 >= std_values[0]*1 && check_value*1 <= std_values[1]*1){
+              var isRangePass = false;
+              if (stdText.indexOf('~') != -1 && std_values.length == 2) {
+                isRangePass = (check_value*1 >= std_values[0]*1 && check_value*1 <= std_values[1]*1);
+              }
+              else if (fn_is_numeric_std_value(stdText)) {
+                isRangePass = (check_value*1 == stdText*1);
+              }
+
+              if(isRangePass){
                 document.getElementById("chk_range_criteria_" + arrObjectIndex[i-1]).style.color = 'blue';
                 document.getElementById("chk_range_std_" + arrObjectIndex[i-1]).style.color = 'blue';
                 document.getElementById("chk_range_value_" + arrObjectIndex[i-1]).style.color = 'blue';
@@ -546,7 +569,13 @@
               var remark_value = document.getElementById("chk_okng_rmk_" + arrObjectIndex[i-1]).value;
               var imgpath_value = document.getElementById("chk_okng_path_" + arrObjectIndex[i-1]).value;
 
-              if(check_value == "OK"){
+              var stdUpper = (value_std || '').toString().trim().toUpperCase();
+              var checkUpper = (check_value || '').toString().trim().toUpperCase();
+              var isOkNgPass = (checkUpper == stdUpper)
+                  || (stdUpper == 'YES' && checkUpper == 'OK')
+                  || (stdUpper == 'NO' && checkUpper == 'NG');
+
+              if(isOkNgPass){
                 //OK
                 document.getElementById("chk_okng_criteria_" + arrObjectIndex[i-1]).style.color = 'blue';
                 document.getElementById("chk_okng_std_" + arrObjectIndex[i-1]).style.color = 'blue';
@@ -604,9 +633,9 @@
 
 
           if(confirm("Are you sure to submit " + $("#cb_insp_type").val() + "? \n Inspection Result : " + result_code + "\n NG Criteria : " + ng_criteria) == true){
-            if ($("#cb_insp_type").val() == "FML_LIST" || $("#cb_insp_type").val() == "QC_FML_CHECK" || $("#cb_insp_type").val() == "QC_DIMS_CHECK" || $("#cb_insp_type").val() == "MT_CO2_CHECK") {
-                var paramObj = {};␊
-                paramObj["SQL"] = "PKG_INSP_COMMON_NEW.LINE_CHECKLIST_SAVE_PART";
+              if ($("#cb_insp_type").val() == "FML_LIST" || $("#cb_insp_type").val() == "QC_FML_CHECK" || $("#cb_insp_type").val() == "QC_DIMS_CHECK" || $("#cb_insp_type").val() == "MT_CO2_CHECK") {
+                  var paramObj = {};
+                  paramObj["SQL"] = "PKG_INSP_COMMON_NEW.LINE_CHECKLIST_SAVE_PART";
                   paramObj["I_1_LINE_CD"] = line_cd_arr;
                   paramObj["I_2_INSP_DOC_NO"] = insp_doc_no_arr;
                   paramObj["I_3_INSP_CD"] = insp_cd_arr;
@@ -845,25 +874,25 @@
                                         </div>
                                     </div>
                                     <div class="row">
-                                    <div class="col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Part no</label>
-                                            <input id="I_PART_NO" type="text" class="form-control" placeholder="Please Scan Line Code">
+                                        <div class="col-sm-12">
+                                            <div class="form-group">
+                                                <label class="control-label">Part no</label>
+                                                <input id="I_PART_NO" type="text" class="form-control" placeholder="Please Scan Line Code">
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                                <div class="row">
-                                    <div class="col-sm-12">
-                                        <div class="form-group">
-                                            <label class="control-label">Prod lot no</label>
-                                            <input id="I_PROD_LOT_NO" type="text" class="form-control" placeholder="Please Scan Line Code">
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="row">
-                                    <div class="col-sm-12">
-                                        <div class="form-group">
-                                          <label class="control-label">Inspection Type</label>
+                                    <div class="row">
+                                       <div class="col-sm-12">
+                                           <div class="form-group">
+                                               <label class="control-label">Prod lot no</label>
+                                               <input id="I_PROD_LOT_NO" type="text" class="form-control" placeholder="Please Scan Line Code">
+                                           </div>
+                                       </div>
+                                   </div>
+                                    <div class="row">
+                                        <div class="col-sm-12">
+                                            <div class="form-group">
+                                              <label class="control-label">Inspection Type</label>
                                               <select id="cb_insp_type" class="selectpicker" data-live-search="true" data-width="100%">
                                               </select>
                                             </div>
